@@ -2,255 +2,493 @@ import dash
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
 import plotly.express as px
+import plotly.graph_objs as go
 import pandas as pd
 from urllib.parse import quote as url_quote
 
 
-# Load data
-objects_df = pd.read_excel('data/CROWN_Objects_1_2024_02_02.xlsx')
-userfields_df = pd.read_excel('data/crown-userfields.xlsx')
 
-# Preprocess data
-def process_medium_types(medium_string):
-    if pd.isna(medium_string):
-        return []
-    return [m.strip() for m in medium_string.split(';') if m.strip()]
+def load_data():
+    """Load data from Excel files."""
+    objects_df = pd.read_excel('data/CROWN_Objects_1_2024_02_02.xlsx')
+    userfields_df = pd.read_excel('data/crown-userfields.xlsx')
 
-medium_types = objects_df['Medium'].apply(process_medium_types).explode()
-medium_counts = medium_types.value_counts().reset_index()
-medium_counts.columns = ['Medium_Type', 'Count']
+    return objects_df, userfields_df
 
-# Extract unique categories dynamically from the data
-unique_mediums = medium_counts['Medium_Type'].unique()
-unique_categories = {um.strip().lower(): um.strip().capitalize() for um in unique_mediums}
+def preprocess_data(objects_df, userfields_df):
+    """Preprocess data for use in the dashboard."""
+    def process_medium_types(medium_string):
+        if pd.isna(medium_string):
+            return []
+        return [m.strip() for m in medium_string.split(';') if m.strip()]
 
-# Function to categorize medium types dynamically
-def categorize_medium(medium_type):
-    medium_list = medium_type.split(';')
-    categorized_list = []
-    for medium in medium_list:
-        medium_cleaned = medium.strip().lower()
-        categorized_list.append(unique_categories.get(medium_cleaned, 'Other'))
-    return '; '.join(categorized_list)
+    medium_types = objects_df['Medium'].apply(process_medium_types).explode()
+    medium_counts = medium_types.value_counts().reset_index()
+    medium_counts.columns = ['Medium_Type', 'Count']
 
-# Apply the function to the medium counts
-medium_counts['Category'] = medium_counts['Medium_Type'].apply(categorize_medium)
+    unique_mediums = medium_counts['Medium_Type'].unique()
+    unique_categories = {um.strip().lower(): um.strip().capitalize() for um in unique_mediums}
 
-# Extract and count enamel colors from userfields_df
-color_columns = [col for col in userfields_df.columns if any(color in col.lower() for color in ['color', 'farbe', 'transparent', 'blau', 'rot', 'gelb', 'grün', 'schwarz', 'weiß', 'braun', 'rosa', 'lila', 'violett', 'orange'])]
+    def categorize_medium(medium_type):
+        medium_list = medium_type.split(';')
+        categorized_list = []
+        for medium in medium_list:
+            medium_cleaned = medium.strip().lower()
+            categorized_list.append(unique_categories.get(medium_cleaned, 'Other'))
+        return '; '.join(categorized_list)
 
-# Convert all values to strings
-userfields_df[color_columns] = userfields_df[color_columns].astype(str)
+    medium_counts['Category'] = medium_counts['Medium_Type'].apply(categorize_medium)
+    
+    color_columns = [
+        'opak blau (obla)', 'opak gelb (ogel)', 'opak grün (ogru)', 
+        'opak hellblau (ohbl)', 'opak inkarnat (oink)', 'opak rot (orot)', 
+        'opak türkis (otue)', 'opak weiß (owei)', '(semi)transparent dunkelblau (tdbl)', 
+        'transparent blau (tbla)', 'transparent braun (tbra)', 'transparent grün (tgru)', 
+        'transparent hellgrün (thgr)', 'transparent dunkelgrün (tdgr)', 
+        'transparent schwarz (tsch)', 'transparent türkis (ttue)'
+    ]
 
-# Clean up and count unique colors
-color_data = userfields_df[color_columns].apply(lambda x: x.str.strip().replace({'nan': None})).apply(pd.Series.value_counts).fillna(0)
-unique_colors = color_data.index[color_data.sum(axis=1).astype(bool)]
+    color_data = userfields_df[color_columns]
+    color_counts_presence = color_data.apply(lambda col: col.isin([1, '1', 1.0, '1.0']).sum()).reset_index()
+    color_counts_presence.columns = ['Enamel Color', 'Count']
+    color_counts_presence = color_counts_presence[color_counts_presence['Count'] > 0]
+    color_counts_presence = color_counts_presence.sort_values(by='Count', ascending=False)
+    
+    return medium_counts, color_counts_presence, color_columns
 
-# Further clean color names for visualization
-cleaned_colors = [color.split(';')[0].strip() for color in unique_colors if isinstance(color, str) and color not in ['0.0', '1.0', '(auswählen)']]
-color_counts = pd.Series(cleaned_colors).value_counts().reset_index()
-color_counts.columns = ['Color', 'Count']
+def get_related_objects_by_ids(objects_df, related_ids):
+    """Filter objects_df based on related IDs and format for DataTable."""
+    related_objects = objects_df[objects_df['ObjectID'].isin(related_ids)]
+    related_objects = related_objects.drop(columns=['SortNumber', 'Authority50ID', 'DateRemarks', 'DimensionRemarks'], errors='ignore')
+    
+    table_columns = [
+        "ObjectID", "ObjectNumber", "ObjectName", "Dated",
+        "DateBegin", "DateEnd", "Medium", "Dimensions",
+        "Description", "Notes", "ShortText8", "Bestandteil"
+    ]
+    
+    related_objects = related_objects[table_columns]
+    return related_objects.to_dict('records')
 
-# Create the Dash app
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
-server = app.server  # Expose the Flask server
+objects_df, userfields_df = load_data()
+medium_counts, color_counts_presence, color_columns = preprocess_data(objects_df, userfields_df)
+
+# Layout Definitions
 
 # Define the navigation bar
 nav_bar = html.Div([
     dcc.Link('Home', href='/', className='nav-link'),
-    dcc.Link('Specialized Data Exploration', href='/specialized', className='nav-link')
+    dcc.Link('Enamel Analysis', href='/enamel', className='nav-link'),
+    dcc.Link('Enamel Color Distribution', href='/colors', className='nav-link')
 ], className='nav-bar')
 
 # Home page layout
-home_page_layout = html.Div([
-    nav_bar,
-    html.H1("CROWN Data Dashboard (~95% AI generated)"),
-    
-    html.Div([
-        html.Label("Select Object via Medium"),
-        dcc.Dropdown(
-            id='category-dropdown',
-            options=[{'label': cat, 'value': cat} for cat in medium_counts['Category'].unique()],
-            value=medium_counts['Category'].unique().tolist(),
-            multi=True
-        ),
-    ]),
-    
-    dcc.Graph(id='object-distribution-chart'),
-    
-    html.Div(id='summary-stats'),
+def create_home_page_layout():
+    return html.Div([
+        nav_bar,
+        html.H1("CROWN Data Dashboard (~95% AI generated)"),
+        
+        html.Div([
+            html.Label("Select Object via Medium"),
+            dcc.Dropdown(
+                id='category-dropdown',
+                options=[{'label': cat, 'value': cat} for cat in medium_counts['Category'].unique()],
+                value=medium_counts['Category'].unique().tolist(),
+                multi=True
+            ),
+        ]),
+        
+        dcc.Graph(id='object-distribution-chart'),
+        
+        html.Div(id='summary-stats'),
 
-    html.Div(id='click-data', style={'display': 'none'}),
+        html.Div(id='click-data', style={'display': 'none'}),
 
-    dash_table.DataTable(
-        id='object-table',
-        columns=[
-            {"name": "Object ID", "id": "ObjectID"},
-            {"name": "Object Number", "id": "ObjectNumber"},
-            {"name": "Object Name", "id": "ObjectName"},
-            {"name": "Dated", "id": "Dated"},
-            {"name": "Date Begin", "id": "DateBegin"},
-            {"name": "Date End", "id": "DateEnd"},
-            {"name": "Medium", "id": "Medium"},
-            {"name": "Dimensions", "id": "Dimensions"},
-            {"name": "Description", "id": "Description"},
-            {"name": "Notes", "id": "Notes"},
-            {"name": "Short Text", "id": "ShortText8"},
-            {"name": "Bestandteil", "id": "Bestandteil"}
-        ],
-        page_size=20,
-        sort_action='native',
-        filter_action='native',
-        style_table={'overflowX': 'auto'},
-        style_header={
-            'backgroundColor': 'rgb(230, 230, 230)',
-            'fontWeight': 'bold'
-        },
-        style_cell={
-            'textAlign': 'left',
-            'minWidth': '0px', 'maxWidth': '180px',
-            'whiteSpace': 'normal'
-        }
+        dash_table.DataTable(
+            id='object-table',
+            columns=[
+                {"name": "Object ID", "id": "ObjectID"},
+                {"name": "Object Number", "id": "ObjectNumber"},
+                {"name": "Object Name", "id": "ObjectName"},
+                {"name": "Dated", "id": "Dated"},
+                {"name": "Date Begin", "id": "DateBegin"},
+                {"name": "Date End", "id": "DateEnd"},
+                {"name": "Medium", "id": "Medium"},
+                {"name": "Dimensions", "id": "Dimensions"},
+                {"name": "Description", "id": "Description"},
+                {"name": "Notes", "id": "Notes"},
+                {"name": "Short Text", "id": "ShortText8"},
+                {"name": "Bestandteil", "id": "Bestandteil"}
+            ],
+            page_size=20,
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            style_cell={
+                'textAlign': 'left',
+                'minWidth': '0px', 'maxWidth': '180px',
+                'whiteSpace': 'normal'
+            }
+        )
+    ])
+
+# Enamel Analysis page layout
+def create_enamel_analysis_layout():
+    return html.Div([
+        nav_bar,
+        html.H1("Enamel Analysis"),
+        
+        html.Div([
+            html.Label("Select Enamel Type"),
+            dcc.Dropdown(
+                id='enamel-type-dropdown',
+                options=[{'label': etype, 'value': etype} for etype in enamel_df['Enamel_Type'].unique()],
+                value=enamel_df['Enamel_Type'].unique().tolist(),
+                multi=True
+            ),
+        ]),
+        
+        dcc.Graph(id='enamel-distribution-chart'),
+        
+        html.H2("Enamel Condition Overview"),
+        html.P("Condition data unavailable in the current dataset"),
+        
+        html.H2("Enamel Color Palette"),
+        html.Div(id='enamel-color-palette'),
+        
+        html.H2("Analytical Results"),
+        html.P("Analytical data unavailable in the current dataset")
+    ])
+
+# Enamel Color Distribution page layout
+def create_color_distribution_layout():
+    return html.Div([
+        nav_bar,
+        html.H1("Enamel Color Distribution"),
+        
+        dcc.Graph(id='enamel-colors-chart'),
+        html.Div(id='click-data-color', style={'display': 'none'}),
+        
+        dash_table.DataTable(
+            id='color-object-table',
+            columns=[
+                {"name": "Object ID", "id": "ObjectID"},
+                {"name": "Object Number", "id": "ObjectNumber"},
+                {"name": "Object Name", "id": "ObjectName"},
+                {"name": "Dated", "id": "Dated"},
+                {"name": "Date Begin", "id": "DateBegin"},
+                {"name": "Date End", "id": "DateEnd"},
+                {"name": "Medium", "id": "Medium"},
+                {"name": "Dimensions", "id": "Dimensions"},
+                {"name": "Description", "id": "Description"},
+                {"name": "Notes", "id": "Notes"},
+                {"name": "Short Text", "id": "ShortText8"},
+                {"name": "Bestandteil", "id": "Bestandteil"}
+            ],
+            page_size=20,
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            style_cell={
+                'textAlign': 'left',
+                'minWidth': '0px', 'maxWidth': '180px',
+                'whiteSpace': 'normal'
+            }
+        )
+    ])
+
+# Define Callbacks
+
+def register_callbacks(app):
+    @app.callback(
+        Output('page-content', 'children'),
+        [Input('url', 'pathname')]
     )
-])
+    def display_page(pathname):
+        if pathname == '/enamel':
+            return create_enamel_analysis_layout()
+        elif pathname == '/colors':
+            return create_color_distribution_layout()
+        else:
+            return create_home_page_layout()
 
-# Specialized data exploration page layout
-specialized_page_layout = html.Div([
-    nav_bar,
-    html.H1("Specialized Data Exploration"),
-    
-    html.H2("Color Distribution"),
-    dcc.Graph(id='colors-chart')
-])
+    @app.callback(
+        [Output('object-distribution-chart', 'figure'),
+         Output('summary-stats', 'children'),
+         Output('click-data', 'children'),
+         Output('object-table', 'data')],
+        [Input('category-dropdown', 'value'),
+         Input('object-distribution-chart', 'clickData')]
+    )
+    def update_chart_and_summary(selected_categories, click_data):
+        # Update charts based on dropdown selection
+        filtered_data = medium_counts[medium_counts['Category'].isin(selected_categories)]
+        
+        if filtered_data.empty:
+            fig = px.bar(title='No data available for selected categories')
+            summary = html.Div([
+                html.P("No object types found for the selected categories."),
+                html.P("Please select different categories.")
+            ])
+            click_message = "No data"
+            table_data = []
+            return fig, summary, click_message, table_data
+        
+        fig = px.bar(filtered_data, 
+                     x='Medium_Type', 
+                     y='Count', 
+                     color='Category',
+                     labels={'Medium_Type': 'Object Type', 'Count': 'Frequency'},
+                     title='Object Medium Distribution',
+                     hover_data=['Medium_Type', 'Count', 'Category'])
+        
+        fig.update_layout(
+            xaxis_tickangle=-45,
+            xaxis_title='',
+            yaxis_title='Frequency',
+            legend_title='Object Category',
+            height=600
+        )
+        
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="right",
+                    x=0.7,
+                    y=1.2,
+                    showactive=True,
+                    buttons=[
+                        dict(label="Linear Scale",
+                             method="relayout",
+                             args=[{"yaxis.type": "linear"}]),
+                        dict(label="Log Scale",
+                             method="relayout",
+                             args=[{"yaxis.type": "log"}])
+                    ]
+                )
+            ]
+        )
 
-# Main app layout
+        total_count = filtered_data['Count'].sum()
+        most_common = filtered_data.loc[filtered_data['Count'].idxmax(), 'Medium_Type'] if not filtered_data.empty else "N/A"
+        
+        summary = html.Div([
+            html.P(f"Total object instances: {total_count}"),
+            html.P(f"Most common object type: {most_common}"),
+            html.P(f"Number of object types: {len(filtered_data)}")
+        ])
+
+        # Handle click data for additional details
+        click_message = "No data"
+        table_data = []
+        if click_data:
+            clicked_object = click_data['points'][0]['x']
+            click_message = f"You clicked on: {clicked_object}"
+            details = medium_counts[medium_counts['Medium_Type'] == clicked_object]
+            details_text = html.Div([
+                html.P(f"Details for {clicked_object}:"),
+                html.P(f"Count: {details['Count'].values[0]}"),
+                html.P(f"Category: {details['Category'].values[0]}")
+            ])
+            
+            # Populate the table with all related objects
+            related_objects = objects_df[objects_df['Medium'].str.contains(clicked_object, case=False, na=False)]
+            table_data = get_related_objects_by_ids(objects_df, related_objects['ObjectID'])
+            
+            return fig, details_text, click_message, table_data
+        
+        return fig, summary, click_message, table_data
+
+    # Define the color mapping
+    color_mapping = {
+        'opak blau (obla)': '#0000FF',
+        'opak gelb (ogel)': '#FFFF00',
+        'opak grün (ogru)': '#00FF00',
+        'opak hellblau (ohbl)': '#ADD8E6',
+        'opak inkarnat (oink)': '#FFC0CB',
+        'opak rot (orot)': '#FF0000',
+        'opak türkis (otue)': '#40E0D0',
+        'opak weiß (owei)': '#FFFFFF',
+        '(semi)transparent dunkelblau (tdbl)': '#00008B',
+        'transparent blau (tbla)': '#0000FF',
+        'transparent braun (tbra)': '#A52A2A',
+        'transparent grün (tgru)': '#00FF00',
+        'transparent hellgrün (thgr)': '#90EE90',
+        'transparent dunkelgrün (tdgr)': '#006400',
+        'transparent schwarz (tsch)': '#000000',
+        'transparent türkis (ttue)': '#40E0D0'
+    }
+
+    @app.callback(
+        [Output('enamel-colors-chart', 'figure'),
+         Output('color-object-table', 'data')],
+        [Input('url', 'pathname'),
+         Input('enamel-colors-chart', 'clickData')]
+    )
+    def update_enamel_colors_chart(pathname, click_data):
+        if pathname == '/colors':
+            # Apply color mapping
+            colors = [color_mapping.get(color, '#808080') for color in color_counts_presence['Enamel Color']]
+            
+            fig = px.bar(color_counts_presence, 
+                         x='Enamel Color', 
+                         y='Count', 
+                         labels={'Enamel Color': 'Enamel Color', 'Count': 'Frequency'}, 
+                         title='Distribution of Enamel Colors',
+                         color=color_counts_presence['Enamel Color'],  # Use colors from the mapping
+                         color_discrete_map=color_mapping)
+
+            fig.update_layout(
+                xaxis_tickangle=-45,
+                xaxis_title='Enamel Color',
+                yaxis_title='Count',
+                height=600
+            )
+
+            table_data = []
+            if click_data:
+                clicked_color = click_data['points'][0]['x']
+                color_column = next(col for col in color_columns if clicked_color in col)
+                related_ids = userfields_df[userfields_df[color_column].isin([1, '1', 1.0, '1.0'])]['ID']
+                table_data = get_related_objects_by_ids(objects_df, related_ids)
+
+            return fig, table_data
+        return {}, []
+
+    @app.callback(
+        Output('enamel-distribution-chart', 'figure'),
+        [Input('enamel-type-dropdown', 'value')]
+    )
+    def update_enamel_distribution(selected_enamel_types):
+        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
+        enamel_counts = filtered_data['Enamel_Type'].value_counts().reset_index()
+        enamel_counts.columns = ['Enamel_Type', 'Count']
+        
+        fig = px.pie(enamel_counts, 
+                     values='Count', 
+                     names='Enamel_Type', 
+                     title='Enamel Type Distribution')
+        return fig
+
+    @app.callback(
+        Output('enamel-condition-heatmap', 'figure'),
+        [Input('enamel-type-dropdown', 'value')]
+    )
+    def update_enamel_condition_heatmap(selected_enamel_types):
+        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
+        conditions = ['Riss/Bruch', 'Haftungsverlust', 'Deformierungen', 'Verfärbung', 'Kratzer']
+        
+        condition_data = []
+        for enamel_type in selected_enamel_types:
+            type_data = filtered_data[filtered_data['Enamel_Type'] == enamel_type]
+            condition_counts = [
+                type_data[condition].sum() if condition in type_data.columns else 0
+                for condition in conditions
+            ]
+            condition_data.append(condition_counts)
+        
+        fig = go.Figure(data=go.Heatmap(
+                       z=condition_data,
+                       x=conditions,
+                       y=selected_enamel_types,
+                       hoverongaps = False))
+        fig.update_layout(title='Enamel Condition Heatmap')
+        return fig
+
+    @app.callback(
+        Output('enamel-color-palette', 'children'),
+        [Input('enamel-type-dropdown', 'value')]
+    )
+    def update_enamel_color_palette(selected_enamel_types):
+        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
+        
+        color_mapping = {
+            'rot': '#FF0000',
+            'blau': '#0000FF',
+            'grün': '#00FF00',
+            'gelb': '#FFFF00',
+            'weiß': '#FFFFFF',
+            'schwarz': '#000000',
+            'transparent': '#CCCCCC',
+        }
+        
+        colors = []
+        for enamel_type in selected_enamel_types:
+            for color, hex_code in color_mapping.items():
+                if color in enamel_type.lower():
+                    colors.append(hex_code)
+                    break
+            else:
+                colors.append('#808080')  # Default gray if no color match
+
+        color_divs = [html.Div(style={'backgroundColor': color, 'width': '50px', 'height': '50px', 'display': 'inline-block', 'margin': '5px'}) for color in colors]
+        return html.Div(color_divs)
+
+    @app.callback(
+        Output('analytical-results-chart', 'figure'),
+        [Input('analysis-type-dropdown', 'value'),
+         Input('enamel-type-dropdown', 'value')]
+    )
+    def update_analytical_results(analysis_type, selected_enamel_types):
+        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
+        
+        if analysis_type == 'raman':
+            x_col = 'Raman: Bande 1 [cm-1]'
+            y_col = 'Raman: Bande 2 [cm-1]'
+        elif analysis_type == 'pl':
+            x_col = 'PL: Bande 1 [nm]'
+            y_col = 'PL: Bande 2 [nm]'
+        else:
+            return go.Figure()  # Return empty figure if data not available
+
+        if x_col not in filtered_data.columns or y_col not in filtered_data.columns:
+            return go.Figure()  # Return empty figure if columns not found
+
+        traces = []
+        for enamel_type in selected_enamel_types:
+            df_type = filtered_data[filtered_data['Enamel_Type'] == enamel_type]
+            traces.append(go.Scatter(
+                x=df_type[x_col],
+                y=df_type[y_col],
+                mode='markers',
+                name=enamel_type,
+                text=df_type['ObjectNumber'],
+                hoverinfo='text+name'
+            ))
+
+        layout = go.Layout(
+            title=f'{analysis_type.upper()} Analysis Results',
+            xaxis={'title': x_col},
+            yaxis={'title': y_col}
+        )
+
+        return go.Figure(data=traces, layout=layout)
+
+# Main App Initialization
+
+# Initialize the Dash app
+app = dash.Dash(__name__, suppress_callback_exceptions=True)
+server = app.server  # Expose the Flask server
+
+# Define the main layout
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     html.Div(id='page-content')
 ])
 
-# Callback for URL routing
-@app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')])
-def display_page(pathname):
-    if pathname == '/specialized':
-        return specialized_page_layout
-    else:
-        return home_page_layout
-
-# Home page callbacks
-@app.callback(
-    [Output('object-distribution-chart', 'figure'),
-     Output('summary-stats', 'children'),
-     Output('click-data', 'children'),
-     Output('object-table', 'data')],
-    [Input('category-dropdown', 'value'),
-     Input('object-distribution-chart', 'clickData')]
-)
-def update_chart_and_summary(selected_categories, click_data):
-    # Update charts based on dropdown selection
-    filtered_data = medium_counts[medium_counts['Category'].isin(selected_categories)]
-    
-    if filtered_data.empty:
-        fig = px.bar(title='No data available for selected categories')
-        summary = html.Div([
-            html.P("No object types found for the selected categories."),
-            html.P("Please select different categories.")
-        ])
-        click_message = "No data"
-        table_data = []
-        return fig, summary, click_message, table_data
-    
-    fig = px.bar(filtered_data, 
-                 x='Medium_Type', 
-                 y='Count', 
-                 color='Category',
-                 labels={'Medium_Type': 'Object Type', 'Count': 'Frequency'},
-                 title='Object Medium Distribution',
-                 hover_data=['Medium_Type', 'Count', 'Category'])
-    
-    fig.update_layout(
-        xaxis_tickangle=-45,
-        xaxis_title='',
-        yaxis_title='Frequency',
-        legend_title='Object Category',
-        height=600
-    )
-    
-    fig.update_layout(
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                x=0.7,
-                y=1.2,
-                showactive=True,
-                buttons=[
-                    dict(label="Linear Scale",
-                         method="relayout",
-                         args=[{"yaxis.type": "linear"}]),
-                    dict(label="Log Scale",
-                         method="relayout",
-                         args=[{"yaxis.type": "log"}])
-                ]
-            )
-        ]
-    )
-
-    total_count = filtered_data['Count'].sum()
-    most_common = filtered_data.loc[filtered_data['Count'].idxmax(), 'Medium_Type'] if not filtered_data.empty else "N/A"
-    
-    summary = html.Div([
-        html.P(f"Total object instances: {total_count}"),
-        html.P(f"Most common object type: {most_common}"),
-        html.P(f"Number of object types: {len(filtered_data)}")
-    ])
-
-    # Handle click data for additional details
-    click_message = "No data"
-    table_data = []
-    if click_data:
-        clicked_object = click_data['points'][0]['x']
-        click_message = f"You clicked on: {clicked_object}"
-        details = medium_counts[medium_counts['Medium_Type'] == clicked_object]
-        details_text = html.Div([
-            html.P(f"Details for {clicked_object}:"),
-            html.P(f"Count: {details['Count'].values[0]}"),
-            html.P(f"Category: {details['Category'].values[0]}")
-        ])
-        
-        # Populate the table with all related objects
-        related_objects = objects_df[objects_df['Medium'].str.contains(clicked_object, case=False, na=False)]
-        related_objects = related_objects.drop(columns=['SortNumber', 'Authority50ID', 'DateRemarks', 'DimensionRemarks'])
-        table_data = related_objects.to_dict('records')
-        
-        return fig, details_text, click_message, table_data
-    
-    return fig, summary, click_message, table_data
-
-# Specialized page callbacks
-@app.callback(
-    Output('colors-chart', 'figure'),
-    [Input('url', 'pathname')]
-)
-def update_specialized_content(pathname):
-    if pathname == '/specialized':
-        # Create the color distribution chart
-        color_fig = px.bar(color_counts, 
-                           x='Color', 
-                           y='Count', 
-                           labels={'Color': 'Color', 'Count': 'Frequency'},
-                           title='Distribution of Colors',
-                           hover_data=['Color', 'Count'])
-
-        color_fig.update_layout(
-            xaxis_tickangle=-45,
-            xaxis_title='',
-            yaxis_title='Frequency',
-            height=600
-        )
-        return color_fig
-    return {}
+# Register callbacks
+register_callbacks(app)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
+
+
