@@ -3,6 +3,8 @@ from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
 import plotly.express as px
 import pandas as pd
+from urllib.parse import quote as url_quote
+
 
 # Load data
 objects_df = pd.read_excel('data/CROWN_Objects_1_2024_02_02.xlsx')
