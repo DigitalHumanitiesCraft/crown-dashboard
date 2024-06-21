@@ -61,7 +61,7 @@ nav_bar = html.Div([
 # Home page layout
 home_page_layout = html.Div([
     nav_bar,
-    html.H1("CROWN Data Dashboard"),
+    html.H1("CROWN Data Dashboard (~95% AI generated)"),
     
     html.Div([
         html.Label("Select Object via Medium"),
