@@ -1,0 +1,38 @@
+
+body {
+    font-family: Arial, sans-serif;
+}
+
+h1 {
+    text-align: center;
+    margin-top: 20px;
+}
+
+h3 {
+    margin-top: 20px;
+}
+
+ul {
+    list-style-type: disc;
+    margin-left: 20px;
+}
+
+.nav-bar {
+    display: flex;
+    justify-content: space-around;
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.nav-link {
+    text-decoration: none;
+    color: #007bff;
+    font-weight: bold;
+    padding: 8px 16px;
+}
+
+.nav-link:hover {
+    background-color: #e9ecef;
+    border-radius: 4px;
+}
