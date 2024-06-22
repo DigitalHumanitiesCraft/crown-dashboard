@@ -8,6 +8,14 @@ from urllib.parse import quote as url_quote
 
 # Import static data
 from static_data import color_mapping, color_columns, damage_columns, table_columns, unique_categories
+from sunburst import create_sunburst_chart, load_sunburst_data
+
+
+# Initialize the Dash app
+app = dash.Dash(__name__, suppress_callback_exceptions=True)
+server = app.server  # Expose the Flask server
+
+
 
 def load_data():
     """Load data from Excel files."""
@@ -49,10 +57,10 @@ def preprocess_data(objects_df, userfields_df):
     relevant_columns_with_bestandteil = damage_columns + ['Bestandteil']
     filtered_data_with_bestandteil = merged_data[relevant_columns_with_bestandteil]
 
-    damage_counts_by_bestandteil = filtered_data_with_bestandteil.groupby('Bestandteil').apply(
+    damage_counts_by_bestandteil = filtered_data_with_bestandteil.groupby('Bestandteil', group_keys=False).apply(
         lambda df: df.drop(columns=['Bestandteil']).notna().sum()
     ).reset_index()
-    
+
     damage_counts_by_bestandteil.columns = ['Bestandteil'] + damage_counts_by_bestandteil.columns[1:].tolist()
     filtered_damage_counts = damage_counts_by_bestandteil.loc[
         ~(damage_counts_by_bestandteil.drop(columns=['Bestandteil']) == 0).all(axis=1)
@@ -71,6 +79,7 @@ def get_related_objects_by_ids(objects_df, related_ids):
 # Load and preprocess the data
 objects_df, userfields_df = load_data()
 medium_counts, color_counts_presence, color_columns, filtered_damage_counts = preprocess_data(objects_df, userfields_df)
+sunburst_data = load_sunburst_data(userfields_df)
 
 # Layout Definitions
 
@@ -78,21 +87,16 @@ medium_counts, color_counts_presence, color_columns, filtered_damage_counts = pr
 nav_bar = html.Div([
     dcc.Link('Home', href='/', className='nav-link'),
     dcc.Link('Enamel Color Distribution', href='/colors', className='nav-link'),
-    dcc.Link('Enamel Damage Distribution', href='/damage', className='nav-link') 
+    dcc.Link('Enamel Damage Distribution', href='/damage', className='nav-link'),
+    dcc.Link('Sunburst Chart', href='/sunburst', className='nav-link')
 ], className='nav-bar')
 
-# Home page layout
+# Home
 def create_home_page_layout():
     return html.Div([
         nav_bar,
         html.H1("CROWN Data Dashboard (~95% AI generated)"),
-        
-
-
-
-
-
-                html.Div([
+            html.Div([
             html.Label("Select Object via Medium"),
             dcc.Dropdown(
                 id='category-dropdown',
@@ -127,16 +131,13 @@ def create_home_page_layout():
         )
     ])
 
-# Enamel Damage Distribution page layout
+# Enamel Damage Distribution
 def create_damage_distribution_layout():
     return html.Div([
         nav_bar,
         html.H1("Enamel Damage Distribution"),
-        
-        dcc.Graph(id='damage-distribution-chart'),  # Placeholder for the stacked bar chart
-
+        dcc.Graph(id='damage-distribution-chart'),
         html.Div(id='click-data-damage', style={'display': 'none'}),
-
         dash_table.DataTable(
             id='damage-object-table',
             columns=[{"name": col, "id": col} for col in table_columns],
@@ -156,15 +157,13 @@ def create_damage_distribution_layout():
         )
     ])
 
-# Enamel Color Distribution page layout
+# Enamel Color Distribution
 def create_color_distribution_layout():
     return html.Div([
         nav_bar,
         html.H1("Enamel Color Distribution"),
-        
         dcc.Graph(id='enamel-colors-chart'),
         html.Div(id='click-data-color', style={'display': 'none'}),
-        
         dash_table.DataTable(
             id='color-object-table',
             columns=[{"name": col, "id": col} for col in table_columns],
@@ -184,6 +183,30 @@ def create_color_distribution_layout():
         )
     ])
 
+# Settings Sunburst
+def create_sunburst_layout():
+    return html.Div([
+        nav_bar,
+        html.H1("Sunburst Chart"),
+        dcc.Graph(id='sunburst-chart'),
+        dash_table.DataTable(
+            id='sunburst-table',
+            columns=[{"name": col, "id": col} for col in ['ObjectID', 'ObjectNumber', 'ObjectName', 'DateBegin', 'DateEnd', 'Medium', 'Description', 'Notes']],
+            page_size=20,
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            style_cell={
+                'textAlign': 'left',
+                'minWidth': '0px', 'maxWidth': '180px',
+                'whiteSpace': 'normal'
+            }
+        )
+    ])
 # Define Callbacks
 
 def register_callbacks(app):
@@ -196,6 +219,8 @@ def register_callbacks(app):
             return create_color_distribution_layout()
         elif pathname == '/damage':
             return create_damage_distribution_layout()
+        elif pathname == '/sunburst':
+            return create_sunburst_layout()
         else:
             return create_home_page_layout()
 
@@ -287,26 +312,6 @@ def register_callbacks(app):
         
         return fig, summary, click_message, table_data
 
-    # Define the color mapping
-    color_mapping = {
-        'opak blau (obla)': '#0000FF',
-        'opak gelb (ogel)': '#FFFF00',
-        'opak grün (ogru)': '#00FF00',
-        'opak hellblau (ohbl)': '#ADD8E6',
-        'opak inkarnat (oink)': '#FFC0CB',
-        'opak rot (orot)': '#FF0000',
-        'opak türkis (otue)': '#40E0D0',
-        'opak weiß (owei)': '#FFFFFF',
-        '(semi)transparent dunkelblau (tdbl)': '#00008B',
-        'transparent blau (tbla)': '#0000FF',
-        'transparent braun (tbra)': '#A52A2A',
-        'transparent grün (tgru)': '#00FF00',
-        'transparent hellgrün (thgr)': '#90EE90',
-        'transparent dunkelgrün (tdgr)': '#006400',
-        'transparent schwarz (tsch)': '#000000',
-        'transparent türkis (ttue)': '#40E0D0'
-    }
-
     @app.callback(
         [Output('enamel-colors-chart', 'figure'),
          Output('color-object-table', 'data')],
@@ -343,12 +348,34 @@ def register_callbacks(app):
             return fig, table_data
         return {}, []
 
+    @app.callback(
+        [Output('sunburst-chart', 'figure'),
+         Output('sunburst-table', 'data')],
+        [Input('sunburst-chart', 'clickData')]
+    )
+    def update_sunburst_chart(click_data):
+        df_sunburst = load_sunburst_data(userfields_df)
+        selected_path = None
+        
+        if click_data:
+            selected_value = click_data['points'][0]['label']
+            selected_path = click_data['points'][0]['id'].split('/')
+            related_objects = userfields_df[userfields_df.apply(lambda row: selected_value in row.values, axis=1)]
+            related_object_ids = related_objects['ID'].unique()
+            filtered_objects = objects_df[objects_df['ObjectID'].isin(related_object_ids)]
+            table_data = filtered_objects.to_dict('records')
+        else:
+            table_data = []
+
+        fig = create_sunburst_chart(df_sunburst, selected_path)
+        return fig, table_data
+
     # Damage Distribution Chart Callback
     @app.callback(
         [Output('damage-distribution-chart', 'figure'),
-         Output('damage-object-table', 'data')],
+        Output('damage-object-table', 'data')],
         [Input('url', 'pathname'),
-         Input('damage-distribution-chart', 'clickData')]
+        Input('damage-distribution-chart', 'clickData')]
     )
     def update_damage_distribution_chart(pathname, click_data):
         if pathname == '/damage':
@@ -363,18 +390,21 @@ def register_callbacks(app):
 
             table_data = []
             if click_data:
-                clicked_damage = click_data['points'][0]['x']
-                print(f"Clicked damage: {clicked_damage}")  # Debug print statement
-                try:
-                    damage_column = next(col for col in filtered_damage_counts.columns[1:] if clicked_damage in col)
-                    related_ids = userfields_df[userfields_df[damage_column].notna()]['ID']
-                    table_data = get_related_objects_by_ids(objects_df, related_ids)
-                except StopIteration:
-                    print(f"No matching column found for clicked damage: {clicked_damage}")
+                print(f"Click data: {click_data}")  # Debug print statement
+                clicked_index = click_data['points'][0]['pointIndex']
+                clicked_bestandteil = filtered_damage_counts.iloc[clicked_index]['Bestandteil']
+                print(f"Clicked Bestandteil: {clicked_bestandteil}")  # Debug print statement
+
+                for damage_type in damage_columns:
+                    if filtered_damage_counts.at[clicked_index, damage_type] > 0:
+                        print(f"Matching damage type: {damage_type}")  # Debug print statement
+                        related_ids = userfields_df[userfields_df[damage_type].notna()]['ID']
+                        table_data = get_related_objects_by_ids(objects_df, related_ids)
+                        break
 
             return fig, table_data
 
-        return go.Figure(), []
+    return go.Figure(), []
 
 # Main App Initialization
 

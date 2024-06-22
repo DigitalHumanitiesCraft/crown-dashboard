@@ -58,3 +58,71 @@ unique_categories = {
     'transparent schwarz (tsch)': 'Transparent Schwarz',
     'transparent türkis (ttue)': 'Transparent Türkis'
 }
+
+
+settings_columns = {
+    'Claw setting': [
+        '1. Perldrahtring: Äquatorlinie', '1. Perldrahtring: Drahtdurchmesser',
+        '2. Perldrahtring: Äquatorlinie', '2. Perldrahtring: Drahtdurchmesser',
+        '3. Perldrahtring: Äquatorlinie', '3. Perldrahtring: Drahtdurchmesser',
+        'Granalien mit Perldrahtringen: Durchmesser', 'Granalien: Abstand zwischen Granalien',
+        'Granalien: Anzahl', 'Granalien: Anzahl zwischen Krallen', 'Granalien: Durchmesser',
+        'Herstellungsprozess: Besonderheiten', 'Krallen: Anzahl', 'Krallen: Breite',
+        'Krallen: Länge (ab Schaft)', 'Krallen: Sonstiges', 'Löttechnik: Sonstiges',
+        'Öffnung in Grundplatte', 'Öffnung: entspricht Fassungsform', 'Öffnung: Sonstiges',
+        'Perldraht: Sonstiges', 'Röhrchen: Abstand zwischen Röhrchen', 'Röhrchen: Anzahl',
+        'Röhrchen: Blechstärke', 'Röhrchen: Durchmesser', 'Röhrchen: Höhe', 'Röhrchen: Sonstiges',
+        'Schlaufen: Sonstiges', 'Technischer Aufbau: Sonstiges'
+    ],
+    'Setting with three pearls': [
+        '1. Perldrahtring: Äquatorlinie', '1. Perldrahtring: Drahtdurchmesser',
+        '2. Perldrahtring: Äquatorlinie', '2. Perldrahtring: Drahtdurchmesser',
+        'bügelförmige Klammern: Durchmesser', 'bügelförmige Klammern: Querschnitt',
+        'bügelförmige Klammern: Sonstiges', 'Herstellungsprozess: Besonderheiten',
+        'Loch: auf Rückseite umsäumt mit Perldraht', 'Loch: Durchmesser', 'Loch: Sonstiges',
+        'Loch: umsäumt mit Perldraht', 'Löttechnik: Sonstiges', 'Montageröhrchen',
+        'Montageröhrchen: Sonstiges', 'Montageröhrchen: steckt in Loch', 'Perldraht: Sonstiges',
+        'Röhrchen: Anzahl', 'Röhrchen: Blechstärke', 'Röhrchen: Durchmesser', 'Röhrchen: Höhe',
+        'Röhrchen: Sonstiges', 'Splinte: Durchmesser', 'Splinte: Querschnitt', 'Splinte: Sonstiges',
+        'Splintkopf: Kugelpyramide', 'Splintkopf: Kugelpyramide: Durchmesser', 'Splintkopf: Kugelpyramide: Sonstiges',
+        'Technischer Aufbau: Sonstiges'
+    ],
+    'Bezel setting': [
+        'Form', 'Herstellungsprozess: Besonderheiten', 'Löttechnik: Sonstiges',
+        'Perldraht: Äquatorlinie', 'Perldraht: Beschreibung', 'Perldraht: Drahtdurchmesser',
+        'Stein/Perle hinterlegt', 'Stein/Perle hinterlegt: Beschreibung', 'Technischer Aufbau: Sonstiges',
+        'Zarge in Bohrung von Stein/Perle gedrückt', 'Zargenblech: Fuge', 'Zargenblech: Höhe', 'Zargenblech: Stärke'
+    ],
+    'Prong setting': [
+        '1. Perldrahtring: Äquatorlinie', '1. Perldrahtring: Drahtdurchmesser',
+        '2. Perldrahtring: Äquatorlinie', '2. Perldrahtring: Drahtdurchmesser', 'Form',
+        'Herstellungsprozess: Besonderheiten', 'Krappen: Anzahl', 'Krappen: aus Röhrchen',
+        'Krappen: ein Band auf 2. Perldrahtring', 'Krappen: gekreuzte Bänder auf 2. Perldrahtring',
+        'Krappen: Querschnitt', 'Krappen: Sonstiges', 'Löttechnik: Sonstiges', 'Öffnung in Grundplatte',
+        'Öffnung: entspricht Fassungsform', 'Öffnung: Sonstiges', 'Perldraht: Sonstiges',
+        'Röhrchen: Abstand zwischen Röhrchen', 'Röhrchen: Anzahl', 'Röhrchen: Blechstärke',
+        'Röhrchen: Durchmesser', 'Röhrchen: Höhe', 'Röhrchen: Sonstiges', 'Technischer Aufbau: Sonstiges'
+    ],
+    'Setting on the central cross': [
+        '1. Perldraht an Zarge: Durchmesser', '2. Perldraht an Zarge: Durchmesser', '3. Perldrahtring',
+        '3. Perldrahtring: Äquatorlinie', '3. Perldrahtring: Drahtdurchmesser', '3. Perldrahtring: Sonstiges',
+        'Arkadenfiligran: Filigrandraht: Beschreibung', 'Arkadenfiligran: Kapitelle: Drahtdurchmesser',
+        'Arkadenfiligran: Kapitelle: Querschnitt', 'Arkadenfiligran: Sonstiges', 'Einsteckstifte: Durchmesser',
+        'Einsteckstifte: Montage', 'Einsteckstifte: Sonstiges', 'Fassungszarge: Höhe (ab 2. Perldraht)',
+        'Fassungszarge: Sonstiges', 'Form', 'Granalien: Abstand zwischen Granalien', 'Granalien: Anzahl',
+        'Granalien: Durchmesser', 'Herstellungsprozess: Besonderheiten', 'Krallen: Anzahl', 'Krallen: Breite',
+        'Krallen: Länge (ab Schaft)', 'Krallen: Sonstiges', 'Löttechnik: Sonstiges', 'Montagehalterung Stein/Perle',
+        'Perldrähte an Zarge: Äquatorlinie', 'Perldrähte an Zarge: Sonstiges', 'runde Durchbrüche: Anzahl',
+        'runde Durchbrüche: Filigrandrahtumsäumung: Beschreibung', 'runde Durchbrüche: Innendurchmesser',
+        'runde Durchbrüche: Sonstiges', 'Technischer Aufbau: Sonstiges', 'Zarge: Fuge', 'Zarge: Stärke'
+    ],
+    'Pearl setting': [
+        '1. Einsteckstift: aus Röhrchen', '1. Perldrahtring: Äquatorlinie', '1. Perldrahtring: Drahtdurchmesser',
+        '2. Einsteckstift auf 1. Perldrahtring', '2. Einsteckstift: aus Röhrchen', '2. Perldrahtring: Äquatorlinie',
+        '2. Perldrahtring: Drahtdurchmesser', 'Einsteckstift am 2. Perldrahtring', 'Einsteckstift: Durchmesser',
+        'Einsteckstift: Sonstiges', 'Herstellungsprozess: Besonderheiten', 'Löttechnik: Sonstiges',
+        'Öffnung in Grundplatte', 'Öffnung: entspricht Fassungsform', 'Öffnung: Sonstiges', 'Perldraht: Sonstiges',
+        'Röhrchen: Abstand zwischen Röhrchen', 'Röhrchen: Anzahl', 'Röhrchen: Blechstärke', 'Röhrchen: Durchmesser',
+        'Röhrchen: Höhe', 'Röhrchen: Sonstiges', 'Technischer Aufbau: Sonstiges'
+    ]
+}
