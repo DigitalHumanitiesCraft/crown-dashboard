@@ -6,13 +6,13 @@ import plotly.graph_objs as go
 import pandas as pd
 from urllib.parse import quote as url_quote
 
-
+# Import static data
+from static_data import color_mapping, color_columns, damage_columns, table_columns, unique_categories
 
 def load_data():
     """Load data from Excel files."""
     objects_df = pd.read_excel('data/CROWN_Objects_1_2024_02_02.xlsx')
     userfields_df = pd.read_excel('data/crown-userfields.xlsx')
-
     return objects_df, userfields_df
 
 def preprocess_data(objects_df, userfields_df):
@@ -38,48 +38,47 @@ def preprocess_data(objects_df, userfields_df):
         return '; '.join(categorized_list)
 
     medium_counts['Category'] = medium_counts['Medium_Type'].apply(categorize_medium)
-    
-    color_columns = [
-        'opak blau (obla)', 'opak gelb (ogel)', 'opak grün (ogru)', 
-        'opak hellblau (ohbl)', 'opak inkarnat (oink)', 'opak rot (orot)', 
-        'opak türkis (otue)', 'opak weiß (owei)', '(semi)transparent dunkelblau (tdbl)', 
-        'transparent blau (tbla)', 'transparent braun (tbra)', 'transparent grün (tgru)', 
-        'transparent hellgrün (thgr)', 'transparent dunkelgrün (tdgr)', 
-        'transparent schwarz (tsch)', 'transparent türkis (ttue)'
-    ]
 
     color_data = userfields_df[color_columns]
     color_counts_presence = color_data.apply(lambda col: col.isin([1, '1', 1.0, '1.0']).sum()).reset_index()
     color_counts_presence.columns = ['Enamel Color', 'Count']
     color_counts_presence = color_counts_presence[color_counts_presence['Count'] > 0]
     color_counts_presence = color_counts_presence.sort_values(by='Count', ascending=False)
+
+    merged_data = pd.merge(objects_df, userfields_df, left_on='ObjectID', right_on='ID', how='inner')
+    relevant_columns_with_bestandteil = damage_columns + ['Bestandteil']
+    filtered_data_with_bestandteil = merged_data[relevant_columns_with_bestandteil]
+
+    damage_counts_by_bestandteil = filtered_data_with_bestandteil.groupby('Bestandteil').apply(
+        lambda df: df.drop(columns=['Bestandteil']).notna().sum()
+    ).reset_index()
     
-    return medium_counts, color_counts_presence, color_columns
+    damage_counts_by_bestandteil.columns = ['Bestandteil'] + damage_counts_by_bestandteil.columns[1:].tolist()
+    filtered_damage_counts = damage_counts_by_bestandteil.loc[
+        ~(damage_counts_by_bestandteil.drop(columns=['Bestandteil']) == 0).all(axis=1)
+    ]
+
+    return medium_counts, color_counts_presence, color_columns, filtered_damage_counts
 
 def get_related_objects_by_ids(objects_df, related_ids):
     """Filter objects_df based on related IDs and format for DataTable."""
     related_objects = objects_df[objects_df['ObjectID'].isin(related_ids)]
     related_objects = related_objects.drop(columns=['SortNumber', 'Authority50ID', 'DateRemarks', 'DimensionRemarks'], errors='ignore')
     
-    table_columns = [
-        "ObjectID", "ObjectNumber", "ObjectName", "Dated",
-        "DateBegin", "DateEnd", "Medium", "Dimensions",
-        "Description", "Notes", "ShortText8", "Bestandteil"
-    ]
-    
     related_objects = related_objects[table_columns]
     return related_objects.to_dict('records')
 
+# Load and preprocess the data
 objects_df, userfields_df = load_data()
-medium_counts, color_counts_presence, color_columns = preprocess_data(objects_df, userfields_df)
+medium_counts, color_counts_presence, color_columns, filtered_damage_counts = preprocess_data(objects_df, userfields_df)
 
 # Layout Definitions
 
 # Define the navigation bar
 nav_bar = html.Div([
     dcc.Link('Home', href='/', className='nav-link'),
-    dcc.Link('Enamel Analysis', href='/enamel', className='nav-link'),
-    dcc.Link('Enamel Color Distribution', href='/colors', className='nav-link')
+    dcc.Link('Enamel Color Distribution', href='/colors', className='nav-link'),
+    dcc.Link('Enamel Damage Distribution', href='/damage', className='nav-link') 
 ], className='nav-bar')
 
 # Home page layout
@@ -88,7 +87,12 @@ def create_home_page_layout():
         nav_bar,
         html.H1("CROWN Data Dashboard (~95% AI generated)"),
         
-        html.Div([
+
+
+
+
+
+                html.Div([
             html.Label("Select Object via Medium"),
             dcc.Dropdown(
                 id='category-dropdown',
@@ -106,20 +110,7 @@ def create_home_page_layout():
 
         dash_table.DataTable(
             id='object-table',
-            columns=[
-                {"name": "Object ID", "id": "ObjectID"},
-                {"name": "Object Number", "id": "ObjectNumber"},
-                {"name": "Object Name", "id": "ObjectName"},
-                {"name": "Dated", "id": "Dated"},
-                {"name": "Date Begin", "id": "DateBegin"},
-                {"name": "Date End", "id": "DateEnd"},
-                {"name": "Medium", "id": "Medium"},
-                {"name": "Dimensions", "id": "Dimensions"},
-                {"name": "Description", "id": "Description"},
-                {"name": "Notes", "id": "Notes"},
-                {"name": "Short Text", "id": "ShortText8"},
-                {"name": "Bestandteil", "id": "Bestandteil"}
-            ],
+            columns=[{"name": col, "id": col} for col in table_columns],
             page_size=20,
             sort_action='native',
             filter_action='native',
@@ -136,32 +127,33 @@ def create_home_page_layout():
         )
     ])
 
-# Enamel Analysis page layout
-def create_enamel_analysis_layout():
+# Enamel Damage Distribution page layout
+def create_damage_distribution_layout():
     return html.Div([
         nav_bar,
-        html.H1("Enamel Analysis"),
+        html.H1("Enamel Damage Distribution"),
         
-        html.Div([
-            html.Label("Select Enamel Type"),
-            dcc.Dropdown(
-                id='enamel-type-dropdown',
-                options=[{'label': etype, 'value': etype} for etype in enamel_df['Enamel_Type'].unique()],
-                value=enamel_df['Enamel_Type'].unique().tolist(),
-                multi=True
-            ),
-        ]),
-        
-        dcc.Graph(id='enamel-distribution-chart'),
-        
-        html.H2("Enamel Condition Overview"),
-        html.P("Condition data unavailable in the current dataset"),
-        
-        html.H2("Enamel Color Palette"),
-        html.Div(id='enamel-color-palette'),
-        
-        html.H2("Analytical Results"),
-        html.P("Analytical data unavailable in the current dataset")
+        dcc.Graph(id='damage-distribution-chart'),  # Placeholder for the stacked bar chart
+
+        html.Div(id='click-data-damage', style={'display': 'none'}),
+
+        dash_table.DataTable(
+            id='damage-object-table',
+            columns=[{"name": col, "id": col} for col in table_columns],
+            page_size=20,
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            style_cell={
+                'textAlign': 'left',
+                'minWidth': '0px', 'maxWidth': '180px',
+                'whiteSpace': 'normal'
+            }
+        )
     ])
 
 # Enamel Color Distribution page layout
@@ -175,20 +167,7 @@ def create_color_distribution_layout():
         
         dash_table.DataTable(
             id='color-object-table',
-            columns=[
-                {"name": "Object ID", "id": "ObjectID"},
-                {"name": "Object Number", "id": "ObjectNumber"},
-                {"name": "Object Name", "id": "ObjectName"},
-                {"name": "Dated", "id": "Dated"},
-                {"name": "Date Begin", "id": "DateBegin"},
-                {"name": "Date End", "id": "DateEnd"},
-                {"name": "Medium", "id": "Medium"},
-                {"name": "Dimensions", "id": "Dimensions"},
-                {"name": "Description", "id": "Description"},
-                {"name": "Notes", "id": "Notes"},
-                {"name": "Short Text", "id": "ShortText8"},
-                {"name": "Bestandteil", "id": "Bestandteil"}
-            ],
+            columns=[{"name": col, "id": col} for col in table_columns],
             page_size=20,
             sort_action='native',
             filter_action='native',
@@ -213,10 +192,10 @@ def register_callbacks(app):
         [Input('url', 'pathname')]
     )
     def display_page(pathname):
-        if pathname == '/enamel':
-            return create_enamel_analysis_layout()
-        elif pathname == '/colors':
+        if pathname == '/colors':
             return create_color_distribution_layout()
+        elif pathname == '/damage':
+            return create_damage_distribution_layout()
         else:
             return create_home_page_layout()
 
@@ -364,114 +343,38 @@ def register_callbacks(app):
             return fig, table_data
         return {}, []
 
+    # Damage Distribution Chart Callback
     @app.callback(
-        Output('enamel-distribution-chart', 'figure'),
-        [Input('enamel-type-dropdown', 'value')]
+        [Output('damage-distribution-chart', 'figure'),
+         Output('damage-object-table', 'data')],
+        [Input('url', 'pathname'),
+         Input('damage-distribution-chart', 'clickData')]
     )
-    def update_enamel_distribution(selected_enamel_types):
-        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
-        enamel_counts = filtered_data['Enamel_Type'].value_counts().reset_index()
-        enamel_counts.columns = ['Enamel_Type', 'Count']
-        
-        fig = px.pie(enamel_counts, 
-                     values='Count', 
-                     names='Enamel_Type', 
-                     title='Enamel Type Distribution')
-        return fig
+    def update_damage_distribution_chart(pathname, click_data):
+        if pathname == '/damage':
+            fig = px.bar(
+                filtered_damage_counts,
+                x='Bestandteil',
+                y=filtered_damage_counts.columns[1:],
+                title='Damage Conditions by Component',
+                labels={'value': 'Count', 'variable': 'Damage Condition'}
+            )
+            fig.update_layout(barmode='stack', xaxis_tickangle=-45)
 
-    @app.callback(
-        Output('enamel-condition-heatmap', 'figure'),
-        [Input('enamel-type-dropdown', 'value')]
-    )
-    def update_enamel_condition_heatmap(selected_enamel_types):
-        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
-        conditions = ['Riss/Bruch', 'Haftungsverlust', 'Deformierungen', 'Verfärbung', 'Kratzer']
-        
-        condition_data = []
-        for enamel_type in selected_enamel_types:
-            type_data = filtered_data[filtered_data['Enamel_Type'] == enamel_type]
-            condition_counts = [
-                type_data[condition].sum() if condition in type_data.columns else 0
-                for condition in conditions
-            ]
-            condition_data.append(condition_counts)
-        
-        fig = go.Figure(data=go.Heatmap(
-                       z=condition_data,
-                       x=conditions,
-                       y=selected_enamel_types,
-                       hoverongaps = False))
-        fig.update_layout(title='Enamel Condition Heatmap')
-        return fig
+            table_data = []
+            if click_data:
+                clicked_damage = click_data['points'][0]['x']
+                print(f"Clicked damage: {clicked_damage}")  # Debug print statement
+                try:
+                    damage_column = next(col for col in filtered_damage_counts.columns[1:] if clicked_damage in col)
+                    related_ids = userfields_df[userfields_df[damage_column].notna()]['ID']
+                    table_data = get_related_objects_by_ids(objects_df, related_ids)
+                except StopIteration:
+                    print(f"No matching column found for clicked damage: {clicked_damage}")
 
-    @app.callback(
-        Output('enamel-color-palette', 'children'),
-        [Input('enamel-type-dropdown', 'value')]
-    )
-    def update_enamel_color_palette(selected_enamel_types):
-        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
-        
-        color_mapping = {
-            'rot': '#FF0000',
-            'blau': '#0000FF',
-            'grün': '#00FF00',
-            'gelb': '#FFFF00',
-            'weiß': '#FFFFFF',
-            'schwarz': '#000000',
-            'transparent': '#CCCCCC',
-        }
-        
-        colors = []
-        for enamel_type in selected_enamel_types:
-            for color, hex_code in color_mapping.items():
-                if color in enamel_type.lower():
-                    colors.append(hex_code)
-                    break
-            else:
-                colors.append('#808080')  # Default gray if no color match
+            return fig, table_data
 
-        color_divs = [html.Div(style={'backgroundColor': color, 'width': '50px', 'height': '50px', 'display': 'inline-block', 'margin': '5px'}) for color in colors]
-        return html.Div(color_divs)
-
-    @app.callback(
-        Output('analytical-results-chart', 'figure'),
-        [Input('analysis-type-dropdown', 'value'),
-         Input('enamel-type-dropdown', 'value')]
-    )
-    def update_analytical_results(analysis_type, selected_enamel_types):
-        filtered_data = enamel_df[enamel_df['Enamel_Type'].isin(selected_enamel_types)]
-        
-        if analysis_type == 'raman':
-            x_col = 'Raman: Bande 1 [cm-1]'
-            y_col = 'Raman: Bande 2 [cm-1]'
-        elif analysis_type == 'pl':
-            x_col = 'PL: Bande 1 [nm]'
-            y_col = 'PL: Bande 2 [nm]'
-        else:
-            return go.Figure()  # Return empty figure if data not available
-
-        if x_col not in filtered_data.columns or y_col not in filtered_data.columns:
-            return go.Figure()  # Return empty figure if columns not found
-
-        traces = []
-        for enamel_type in selected_enamel_types:
-            df_type = filtered_data[filtered_data['Enamel_Type'] == enamel_type]
-            traces.append(go.Scatter(
-                x=df_type[x_col],
-                y=df_type[y_col],
-                mode='markers',
-                name=enamel_type,
-                text=df_type['ObjectNumber'],
-                hoverinfo='text+name'
-            ))
-
-        layout = go.Layout(
-            title=f'{analysis_type.upper()} Analysis Results',
-            xaxis={'title': x_col},
-            yaxis={'title': y_col}
-        )
-
-        return go.Figure(data=traces, layout=layout)
+        return go.Figure(), []
 
 # Main App Initialization
 
@@ -490,5 +393,6 @@ register_callbacks(app)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
+
 
 
