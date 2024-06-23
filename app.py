@@ -10,6 +10,7 @@ import pandas as pd
 from static_data import color_mapping, color_columns, damage_columns, table_columns, unique_categories
 from sunburst import create_sunburst_chart, load_sunburst_data
 
+
 columns = [{"name": col, "id": col} for col in table_columns]
 columns.append({"name": "FileName_paths", "id": "FileName_paths", "presentation": "markdown"})
 
@@ -92,7 +93,49 @@ def preprocess_data(objects_df, userfields_df, restaurierung_1_df, restaurierung
     else:
         print("FileName column successfully merged.")
     
-    return medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths
+ # Calculate total gemstones and sapphires
+    total_gemstones = objects_df[objects_df['Medium'].str.contains('Edelstein', case=False, na=False)]['ObjectID'].nunique()
+    total_sapphires = objects_df[objects_df['Medium'].str.contains('Saphir', case=False, na=False)]['ObjectID'].nunique()
+
+    # Filter objects related to Plate A
+    plate_a_objects = objects_df[objects_df['SortNumber'].str.contains('A', case=False, na=False) & objects_df['Medium'].str.contains('Saphir', case=False, na=False)]
+    plate_a_ids = plate_a_objects['ObjectID'].unique()
+    plate_a_userfields = userfields_df[userfields_df['ID'].isin(plate_a_ids)]
+
+    # Count drill holes in sapphires on Plate A
+    drill_holes_count = plate_a_userfields['Bohrloch: Anzahl'].dropna().astype(int).sum()
+
+    # Non-Fitting Gemstones on Plate A
+    non_fitting_columns = ['Form: Sonstiges', 'Form: Stein in Fassung', 'Form für Fassung']
+    non_fitting_columns_present = [col for col in non_fitting_columns if col in userfields_df.columns]
+    if non_fitting_columns_present:
+        non_fitting_gemstones = plate_a_userfields[
+            (plate_a_userfields[non_fitting_columns_present[0]].str.contains('nicht passgenau', case=False, na=False)) |
+            (plate_a_userfields[non_fitting_columns_present[0]].str.contains('zu klein', case=False, na=False)) |
+            (plate_a_userfields[non_fitting_columns_present[0]].str.contains('zu groß', case=False, na=False))
+        ]
+        non_fitting_count = non_fitting_gemstones['ID'].nunique()
+    else:
+        non_fitting_count = 0
+
+    # Cut Forms of Gemstones on Plate A
+    cut_forms_columns = ['Form: Schliff', 'Form: Schliff: Beschreibung']
+    cut_forms_columns_present = [col for col in cut_forms_columns if col in userfields_df.columns]
+    if cut_forms_columns_present:
+        cut_forms = plate_a_userfields[cut_forms_columns_present].dropna(how='all')
+    else:
+        cut_forms = pd.DataFrame()
+
+    # Pearl shapes and characteristics
+    pearl_columns = ['Form', 'Form: Sonstiges', 'Oberfläche', 'Perlmutterstruktur: Beschreibung', 'fehlende Teile', 'fehlende Teile: Beschreibung', 'Kratzer', 'Kratzer: Beschreibung', 'Riss', 'Riss: Beschreibung']
+    pearl_columns_present = [col for col in pearl_columns if col in userfields_df.columns]
+    if pearl_columns_present:
+        pearl_data = userfields_df[pearl_columns_present].dropna(how='all')
+    else:
+        pearl_data = pd.DataFrame()
+
+    return medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths, total_gemstones, total_sapphires, drill_holes_count, non_fitting_count, cut_forms, pearl_data
+
 
 def get_related_objects_by_ids(objects_df, related_ids):
     """Filter objects_df based on related IDs and format for DataTable."""
@@ -110,7 +153,7 @@ def get_related_objects_by_ids(objects_df, related_ids):
 
 # Load and preprocess data
 objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df = load_data()
-medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths = preprocess_data(objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df)
+medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths, total_gemstones, total_sapphires, drill_holes_count, non_fitting_count, cut_forms, pearl_data = preprocess_data(objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df)
 
 # Layout Definitions
 
@@ -137,7 +180,8 @@ nav_bar = html.Div([
     dcc.Link('Home', href='/', className='nav-link'),
     dcc.Link('Enamel Color Distribution', href='/colors', className='nav-link'),
     dcc.Link('Enamel Damage Distribution', href='/damage', className='nav-link'),
-    dcc.Link('Sunburst Chart', href='/sunburst', className='nav-link')
+    dcc.Link('Sunburst Chart', href='/sunburst', className='nav-link'),
+    dcc.Link('Pearls and Gem Stones', href='/pearls-gemstones', className='nav-link')
 ], className='nav-bar')
 
 # Home
@@ -168,7 +212,7 @@ def create_home_page_layout():
             sort_action='native',
             filter_action='native',
             style_table={'overflowX': 'auto'},
-            style_header={
+             style_header={
                 'backgroundColor': 'rgb(230, 230, 230)',
                 'fontWeight': 'bold'
             },
@@ -232,7 +276,7 @@ def create_color_distribution_layout():
         )
     ])
 
-# Settings Sunburst
+# Sunburst Layout
 def create_sunburst_layout():
     return html.Div([
         nav_bar,
@@ -257,8 +301,37 @@ def create_sunburst_layout():
         )
     ])
 
-# Define Callbacks
+# Pearls and Gem Stones
+def create_pearls_gemstones_layout():
+    return html.Div([
+        nav_bar,
+        html.H1("Pearls and Gem Stones"),
+        html.Div([
+            html.H2("Overview"),
+            html.P(f"Total number of gemstones: {total_gemstones}"),
+            html.P(f"Total number of sapphires: {total_sapphires}"),
+            html.H2("Drill Holes in Sapphires on Plate A"),
+            html.P(f"Number of sapphires with drill holes: {drill_holes_count}"),
+            html.H2("Non-Fitting Gemstones on Plate A"),
+            html.P(f"Number of non-fitting gemstones: {non_fitting_count}"),
+            html.H2("Cut Forms of Gemstones on Plate A"),
+            dcc.Graph(
+                id='cut-forms-chart',
+                figure=px.bar(cut_forms, x='Form: Schliff', y=cut_forms.index, title='Cut Forms of Gemstones on Plate A')
+            ),
+            html.H2("Pearl Shapes and Characteristics"),
+            dash_table.DataTable(
+                data=pearl_data.to_dict('records'),
+                columns=[{"name": col, "id": col} for col in pearl_data.columns],
+                page_size=10,
+                style_table={'overflowX': 'auto'},
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_cell={'textAlign': 'left', 'minWidth': '0px', 'maxWidth': '180px', 'whiteSpace': 'normal'}
+            )
+        ])
+    ])
 
+# Define Callbacks
 def register_callbacks(app):
     @app.callback(
         Output('page-content', 'children'),
@@ -271,6 +344,8 @@ def register_callbacks(app):
             return create_damage_distribution_layout()
         elif pathname == '/sunburst':
             return create_sunburst_layout()
+        elif pathname == '/pearls-gemstones':
+            return create_pearls_gemstones_layout()
         else:
             return create_home_page_layout()
 
@@ -472,7 +547,4 @@ register_callbacks(app)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
-
-
-
 
