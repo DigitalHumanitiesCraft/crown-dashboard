@@ -187,7 +187,7 @@ def create_color_distribution_layout():
 def create_sunburst_layout():
     return html.Div([
         nav_bar,
-        html.H1("Sunburst Chart"),
+        html.H1("Settings"),
         dcc.Graph(id='sunburst-chart'),
         dash_table.DataTable(
             id='sunburst-table',
