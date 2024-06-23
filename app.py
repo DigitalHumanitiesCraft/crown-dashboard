@@ -1,29 +1,33 @@
 import dash
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
+from dash.dash_table.Format import Format, Scheme
 import plotly.express as px
-import plotly.graph_objs as go
-import pandas as pd
 from urllib.parse import quote as url_quote
+import pandas as pd
 
 # Import static data
 from static_data import color_mapping, color_columns, damage_columns, table_columns, unique_categories
 from sunburst import create_sunburst_chart, load_sunburst_data
+
+columns = [{"name": col, "id": col} for col in table_columns]
+columns.append({"name": "FileName_paths", "id": "FileName_paths", "presentation": "markdown"})
 
 
 # Initialize the Dash app
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
 server = app.server  # Expose the Flask server
 
-
-
 def load_data():
     """Load data from Excel files."""
     objects_df = pd.read_excel('data/CROWN_Objects_1_2024_02_02.xlsx')
     userfields_df = pd.read_excel('data/crown-userfields.xlsx')
-    return objects_df, userfields_df
+    restaurierung_1_df = pd.read_excel('data/CROWN_Restaurierung_1_2024_02_02.xlsx')
+    restaurierung_2_df = pd.read_excel('data/CROWN_Restaurierung_2_2024_02_02.xlsx')
+    paths_df = pd.read_excel('data/CROWN_Restaurierung_3_Medien_2024_02_02.xlsx')
+    return objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df
 
-def preprocess_data(objects_df, userfields_df):
+def preprocess_data(objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df):
     """Preprocess data for use in the dashboard."""
     def process_medium_types(medium_string):
         if pd.isna(medium_string):
@@ -57,8 +61,9 @@ def preprocess_data(objects_df, userfields_df):
     relevant_columns_with_bestandteil = damage_columns + ['Bestandteil']
     filtered_data_with_bestandteil = merged_data[relevant_columns_with_bestandteil]
 
+    # Use include_groups=False to silence the deprecation warning
     damage_counts_by_bestandteil = filtered_data_with_bestandteil.groupby('Bestandteil', group_keys=False).apply(
-        lambda df: df.drop(columns=['Bestandteil']).notna().sum()
+        lambda df: df.loc[:, df.columns != 'Bestandteil'].notna().sum()
     ).reset_index()
 
     damage_counts_by_bestandteil.columns = ['Bestandteil'] + damage_counts_by_bestandteil.columns[1:].tolist()
@@ -66,22 +71,66 @@ def preprocess_data(objects_df, userfields_df):
         ~(damage_counts_by_bestandteil.drop(columns=['Bestandteil']) == 0).all(axis=1)
     ]
 
-    return medium_counts, color_counts_presence, color_columns, filtered_damage_counts
+    # Ensure unique column names before merging
+    restaurierung_2_df = restaurierung_2_df.add_suffix('_rest2')
+    paths_df = paths_df.add_suffix('_paths')
+    restaurierung_1_df = restaurierung_1_df.add_suffix('_rest1')
+    
+    # Merge paths with objects step by step
+    merged_df1 = pd.merge(restaurierung_2_df, paths_df[['CondLineItemID_paths', 'FileName_paths']], left_on='CondLineItemID_rest2', right_on='CondLineItemID_paths', how='left')
+    merged_df2 = pd.merge(restaurierung_1_df, merged_df1, left_on='ConditionID_rest1', right_on='ConditionID_rest2', how='left')
+    merged_with_paths = pd.merge(objects_df, merged_df2, left_on='ObjectID', right_on='ID_rest1', how='left')
+    
+    # Handle duplicated ObjectNumber columns
+    if 'ObjectNumber_rest1' in merged_with_paths.columns and 'ObjectNumber' in merged_with_paths.columns:
+        merged_with_paths['ObjectNumber'] = merged_with_paths['ObjectNumber'].combine_first(merged_with_paths['ObjectNumber_rest1'])
+        merged_with_paths = merged_with_paths.drop(columns=['ObjectNumber_rest1'])
+    
+    # Check columns after merge to ensure 'FileName_paths' is included
+    if 'FileName_paths' not in merged_with_paths.columns:
+        print("FileName column is missing after merge. Available columns:", merged_with_paths.columns)
+    else:
+        print("FileName column successfully merged.")
+    
+    return medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths
 
 def get_related_objects_by_ids(objects_df, related_ids):
     """Filter objects_df based on related IDs and format for DataTable."""
     related_objects = objects_df[objects_df['ObjectID'].isin(related_ids)]
     related_objects = related_objects.drop(columns=['SortNumber', 'Authority50ID', 'DateRemarks', 'DimensionRemarks'], errors='ignore')
-    
-    related_objects = related_objects[table_columns]
-    return related_objects.to_dict('records')
 
-# Load and preprocess the data
-objects_df, userfields_df = load_data()
-medium_counts, color_counts_presence, color_columns, filtered_damage_counts = preprocess_data(objects_df, userfields_df)
-sunburst_data = load_sunburst_data(userfields_df)
+    # Check if 'FileName_paths' is present before attempting to use it
+    if 'FileName_paths' not in related_objects.columns:
+        print("FileName column is missing. Available columns:", related_objects.columns)
+        return related_objects[table_columns + ['ObjectNumber']].to_dict('records')
+    else:
+        # Apply the hyperlink formatting
+        related_objects = format_filename_as_link(related_objects)
+        return related_objects[table_columns + ['ObjectNumber', 'FileName_paths']].to_dict('records')
+
+# Load and preprocess data
+objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df = load_data()
+medium_counts, color_counts_presence, color_columns, filtered_damage_counts, merged_with_paths = preprocess_data(objects_df, userfields_df, restaurierung_1_df, restaurierung_2_df, paths_df)
 
 # Layout Definitions
+
+def format_filename_as_link(df):
+    """Format the FileName_paths column as clickable download links."""
+    zenodo_base_url = "https://zenodo.org/api/records/12508052/files/"
+    
+    def create_download_link(file_path):
+        # Extract the filename from the full path
+        file_name = file_path.split("\\")[-1]
+        # URL encode the filename
+        encoded_file_name = url_quote(file_name)
+        # Create the download URL
+        download_url = f"{zenodo_base_url}{encoded_file_name}/content"
+        return f'[Download]({download_url})'
+    
+    df['FileName_paths'] = df['FileName_paths'].apply(
+        lambda x: create_download_link(x) if pd.notna(x) else ""
+    )
+    return df
 
 # Define the navigation bar
 nav_bar = html.Div([
@@ -96,7 +145,7 @@ def create_home_page_layout():
     return html.Div([
         nav_bar,
         html.H1("CROWN Data Dashboard (~95% AI generated)"),
-            html.Div([
+        html.Div([
             html.Label("Select Object via Medium"),
             dcc.Dropdown(
                 id='category-dropdown',
@@ -114,7 +163,7 @@ def create_home_page_layout():
 
         dash_table.DataTable(
             id='object-table',
-            columns=[{"name": col, "id": col} for col in table_columns],
+            columns=columns,
             page_size=20,
             sort_action='native',
             filter_action='native',
@@ -140,7 +189,7 @@ def create_damage_distribution_layout():
         html.Div(id='click-data-damage', style={'display': 'none'}),
         dash_table.DataTable(
             id='damage-object-table',
-            columns=[{"name": col, "id": col} for col in table_columns],
+            columns=columns,
             page_size=20,
             sort_action='native',
             filter_action='native',
@@ -166,7 +215,7 @@ def create_color_distribution_layout():
         html.Div(id='click-data-color', style={'display': 'none'}),
         dash_table.DataTable(
             id='color-object-table',
-            columns=[{"name": col, "id": col} for col in table_columns],
+            columns=columns,
             page_size=20,
             sort_action='native',
             filter_action='native',
@@ -207,6 +256,7 @@ def create_sunburst_layout():
             }
         )
     ])
+
 # Define Callbacks
 
 def register_callbacks(app):
@@ -306,7 +356,7 @@ def register_callbacks(app):
             
             # Populate the table with all related objects
             related_objects = objects_df[objects_df['Medium'].str.contains(clicked_object, case=False, na=False)]
-            table_data = get_related_objects_by_ids(objects_df, related_objects['ObjectID'])
+            table_data = get_related_objects_by_ids(merged_with_paths, related_objects['ObjectID'])
             
             return fig, details_text, click_message, table_data
         
@@ -320,17 +370,13 @@ def register_callbacks(app):
     )
     def update_enamel_colors_chart(pathname, click_data):
         if pathname == '/colors':
-            # Apply color mapping
-            colors = [color_mapping.get(color, '#808080') for color in color_counts_presence['Enamel Color']]
-            
             fig = px.bar(color_counts_presence, 
                          x='Enamel Color', 
                          y='Count', 
                          labels={'Enamel Color': 'Enamel Color', 'Count': 'Frequency'}, 
                          title='Distribution of Enamel Colors',
-                         color=color_counts_presence['Enamel Color'],  # Use colors from the mapping
+                         color=color_counts_presence['Enamel Color'],
                          color_discrete_map=color_mapping)
-
             fig.update_layout(
                 xaxis_tickangle=-45,
                 xaxis_title='Enamel Color',
@@ -343,7 +389,10 @@ def register_callbacks(app):
                 clicked_color = click_data['points'][0]['x']
                 color_column = next(col for col in color_columns if clicked_color in col)
                 related_ids = userfields_df[userfields_df[color_column].isin([1, '1', 1.0, '1.0'])]['ID']
-                table_data = get_related_objects_by_ids(objects_df, related_ids)
+                table_data = get_related_objects_by_ids(merged_with_paths, related_ids)
+
+                if 'FileName_paths' not in merged_with_paths.columns:
+                    print("FileName_paths column is missing in merged_with_paths. Available columns:", merged_with_paths.columns)
 
             return fig, table_data
         return {}, []
@@ -362,7 +411,7 @@ def register_callbacks(app):
             selected_path = click_data['points'][0]['id'].split('/')
             related_objects = userfields_df[userfields_df.apply(lambda row: selected_value in row.values, axis=1)]
             related_object_ids = related_objects['ID'].unique()
-            filtered_objects = objects_df[objects_df['ObjectID'].isin(related_object_ids)]
+            filtered_objects = merged_with_paths[merged_with_paths['ObjectID'].isin(related_object_ids)]
             table_data = filtered_objects.to_dict('records')
         else:
             table_data = []
@@ -373,9 +422,9 @@ def register_callbacks(app):
     # Damage Distribution Chart Callback
     @app.callback(
         [Output('damage-distribution-chart', 'figure'),
-        Output('damage-object-table', 'data')],
+         Output('damage-object-table', 'data')],
         [Input('url', 'pathname'),
-        Input('damage-distribution-chart', 'clickData')]
+         Input('damage-distribution-chart', 'clickData')]
     )
     def update_damage_distribution_chart(pathname, click_data):
         if pathname == '/damage':
@@ -399,18 +448,18 @@ def register_callbacks(app):
                     if filtered_damage_counts.at[clicked_index, damage_type] > 0:
                         print(f"Matching damage type: {damage_type}")  # Debug print statement
                         related_ids = userfields_df[userfields_df[damage_type].notna()]['ID']
-                        table_data = get_related_objects_by_ids(objects_df, related_ids)
+                        table_data = get_related_objects_by_ids(merged_with_paths, related_ids)
                         break
 
             return fig, table_data
 
-    return go.Figure(), []
+        return go.Figure(), []
 
 # Main App Initialization
 
 # Initialize the Dash app
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
-server = app.server  # Expose the Flask server
+server = app.server
 
 # Define the main layout
 app.layout = html.Div([
@@ -423,6 +472,7 @@ register_callbacks(app)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
+
 
 
 
